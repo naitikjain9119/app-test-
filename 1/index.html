@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pro Digital Teaching Board v2.0</title>
+
+    <!-- External Libraries (Industry Standard) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-color: #f4f5f7;
+            --panel-bg: rgba(255, 255, 255, 0.90);
+            --text-color: #1a1a1a;
+            --primary: #007aff;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+            --border: rgba(200, 200, 200, 0.4);
+            --hover: #e5e5ea;
+            --canvas-bg: #ffffff;
+            --glass-blur: blur(16px);
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #121212;
+            --panel-bg: rgba(30, 30, 30, 0.90);
+            --text-color: #f4f5f7;
+            --primary: #0a84ff;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            --border: rgba(255, 255, 255, 0.15);
+            --hover: #2c2c2e;
+            --canvas-bg: #1c1c1e;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; user-select: none; }
+        body { background-color: var(--bg-color); color: var(--text-color); overflow: hidden; touch-action: none; transition: background-color 0.3s; }
+
+        /* Canvas */
+        #canvas-wrapper { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; background: var(--canvas-bg); transition: background-color 0.3s; }
+
+        /* Bottom Master Dock */
+        #bottom-dock-container {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 10; display: flex; gap: 15px; align-items: center; max-width: 95vw;
+        }
+
+        .glass-panel {
+            background: var(--panel-bg);
+            backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border); border-radius: 16px;
+            box-shadow: var(--shadow);
+            display: flex; align-items: center; padding: 6px; gap: 4px;
+        }
+
+        /* Buttons */
+        .btn {
+            background: transparent; border: none; color: var(--text-color); width: 44px; height: 44px;
+            border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem; transition: all 0.2s ease; position: relative;
+        }
+        .btn:hover { background: var(--hover); }
+        .btn:active { transform: scale(0.95); }
+        .btn.active { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(0,122,255,0.4); }
+        
+        .separator { width: 1px; height: 28px; background: var(--border); margin: 0 4px; }
+        #page-indicator { font-weight: bold; font-size: 14px; padding: 0 10px; min-width: 60px; text-align: center; }
+
+        /* Color Active Indicator */
+        .color-indicator {
+            width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--panel-bg);
+            position: absolute; bottom: 4px; right: 4px; box-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+
+        /* Popups (Menus, Colors, Shapes) */
+        .popup-menu {
+            display: none; position: absolute; bottom: calc(100% + 15px); left: 50%; transform: translateX(-50%);
+            background: var(--panel-bg); backdrop-filter: var(--glass-blur); border: 1px solid var(--border);
+            border-radius: 16px; box-shadow: var(--shadow); padding: 12px; z-index: 50; width: max-content;
+        }
+        .popup-menu.show { display: block; animation: popupAnim 0.2s ease-out forwards; }
+        @keyframes popupAnim { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+        .popup-arrow { position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%) rotate(45deg); width: 16px; height: 16px; background: var(--panel-bg); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+        /* File Menu Specific */
+        .menu-item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 8px; cursor: pointer; transition: background 0.2s; color: var(--text-color); font-weight: 500; font-size: 14px;}
+        .menu-item:hover { background: var(--hover); }
+        .menu-item i { width: 20px; text-align: center; font-size: 16px;}
+
+        /* Color Palette (Word Style) */
+        .palette-section-title { font-size: 12px; font-weight: bold; color: gray; margin: 4px 0 8px 4px; text-transform: uppercase;}
+        .swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 12px; }
+        .swatch { width: 28px; height: 28px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); transition: transform 0.1s; }
+        .swatch:hover { transform: scale(1.15); box-shadow: 0 2px 5px rgba(0,0,0,0.2); border-color: var(--primary);}
+        .swatch.selected { border: 2px solid var(--primary); transform: scale(1.1); }
+        
+        .custom-color-btn { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 8px; cursor: pointer; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px;}
+        .custom-color-btn:hover { background: var(--hover); }
+        input[type="color"] { opacity: 0; position: absolute; width: 0; height: 0; }
+
+        /* Stroke Size Slider */
+        .size-slider-container { display: flex; align-items: center; gap: 10px; padding: 4px; }
+        input[type="range"] { -webkit-appearance: none; width: 150px; background: transparent; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: var(--primary); cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        input[type="range"]::-webkit-slider-runnable-track { width: 100%; height: 6px; background: var(--hover); border-radius: 3px; border: 1px solid var(--border); }
+
+        /* Loader */
+        #loader { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); backdrop-filter: blur(5px); z-index: 200; align-items: center; justify-content: center; flex-direction: column; color: white; font-size: 1.2rem;}
+        .spinner { border: 5px solid rgba(255,255,255,0.3); border-top: 5px solid var(--primary); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 15px;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Laser pointer animation */
+        .laser-point { position: absolute; width: 12px; height: 12px; background: red; border-radius: 50%; pointer-events: none; opacity: 1; transition: opacity 0.5s ease-out, transform 0.5s ease-out; transform: scale(1); box-shadow: 0 0 12px red; z-index: 9999; }
+    </style>
+</head>
+<body data-theme="light">
+
+    <!-- Loading UI -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <div id="loader-text">Processing...</div>
+    </div>
+
+    <!-- Canvas Container -->
+    <div id="canvas-wrapper">
+        <canvas id="board"></canvas>
+    </div>
+
+    <!-- Bottom Unified Tool Dock -->
+    <div id="bottom-dock-container">
+
+        <!-- System & Actions -->
+        <div class="glass-panel" style="position: relative;">
+            <button class="btn" id="btn-menu" title="System Menu"><i class="fa-solid fa-bars"></i></button>
+            <div class="separator"></div>
+            <button class="btn" id="btn-undo" title="Undo"><i class="fa-solid fa-rotate-left"></i></button>
+            <button class="btn" id="btn-redo" title="Redo"><i class="fa-solid fa-rotate-right"></i></button>
+
+            <!-- Settings Menu Popup -->
+            <div class="popup-menu" id="menu-popup" style="left: 0; transform: translateX(0);">
+                <div class="popup-arrow" style="left: 20px;"></div>
+                <div class="menu-item" id="btn-theme"><i class="fa-solid fa-moon"></i> Toggle Dark/Light Mode</div>
+                <div class="menu-item" id="btn-save"><i class="fa-solid fa-floppy-disk"></i> Save Project File</div>
+                <div class="menu-item" id="btn-open"><i class="fa-solid fa-folder-open"></i> Open Project File</div>
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 5px 0;">
+                <div class="menu-item" id="btn-export-pdf"><i class="fa-solid fa-file-pdf" style="color: #d32f2f;"></i> Export as PDF</div>
+                <div class="menu-item" id="btn-import-pdf"><i class="fa-solid fa-file-import" style="color: #1976d2;"></i> Import PDF</div>
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 5px 0;">
+                <div class="menu-item" id="btn-clear" style="color: #d32f2f;"><i class="fa-solid fa-trash-can"></i> Clear Current Page</div>
+            </div>
+        </div>
+
+        <!-- Pagination & Zoom -->
+        <div class="glass-panel">
+            <button class="btn" id="btn-zoom-out" title="Zoom Out"><i class="fa-solid fa-minus"></i></button>
+            <button class="btn" id="btn-zoom-reset" title="Reset Zoom"><i class="fa-solid fa-expand"></i></button>
+            <button class="btn" id="btn-zoom-in" title="Zoom In"><i class="fa-solid fa-plus"></i></button>
+            <div class="separator"></div>
+            <button class="btn" id="btn-prev-page" title="Prev Page"><i class="fa-solid fa-chevron-left"></i></button>
+            <span id="page-indicator">1 / 1</span>
+            <button class="btn" id="btn-next-page" title="Next Page"><i class="fa-solid fa-chevron-right"></i></button>
+            <button class="btn" id="btn-add-page" title="New Page"><i class="fa-solid fa-file-circle-plus"></i></button>
+        </div>
+
+        <!-- Main Tools -->
+        <div class="glass-panel">
+            <button class="btn active tool-btn" data-tool="select" title="Cursor (Select)"><i class="fa-solid fa-arrow-pointer"></i></button>
+            <div class="separator"></div>
+            <button class="btn tool-btn" data-tool="pen" title="Pen"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn tool-btn" data-tool="highlighter" title="Highlighter"><i class="fa-solid fa-marker"></i></button>
+            <button class="btn tool-btn" data-tool="eraser" title="Eraser"><i class="fa-solid fa-eraser"></i></button>
+            <button class="btn tool-btn" data-tool="laser" title="Laser Pointer"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+            <div class="separator"></div>
+            <div style="position: relative;">
+                <button class="btn" id="btn-shapes" title="Shapes"><i class="fa-solid fa-shapes"></i></button>
+                <div class="popup-menu" id="shapes-popup">
+                    <div class="popup-arrow"></div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn shape-btn" data-shape="rect"><i class="fa-regular fa-square"></i></button>
+                        <button class="btn shape-btn" data-shape="circle"><i class="fa-regular fa-circle"></i></button>
+                        <button class="btn shape-btn" data-shape="triangle"><i class="fa-solid fa-play" style="transform: rotate(-90deg);"></i></button>
+                        <button class="btn shape-btn" data-shape="line"><i class="fa-solid fa-minus"></i></button>
+                        <button class="btn shape-btn" data-shape="arrow"><i class="fa-solid fa-arrow-right-long"></i></button>
+                    </div>
+                </div>
+            </div>
+            <button class="btn tool-btn" data-tool="text" title="Text"><i class="fa-solid fa-t"></i></button>
+            <div class="separator"></div>
+            <button class="btn" id="btn-image" title="Add Image"><i class="fa-regular fa-image"></i></button>
+            <button class="btn" id="btn-video" title="Add Video"><i class="fa-solid fa-film"></i></button>
+        </div>
+
+        <!-- Properties (Color & Stroke Size) -->
+        <div class="glass-panel" id="properties-panel">
+            <!-- Color Palette Button -->
+            <div style="position: relative;">
+                <button class="btn" id="btn-color" title="Change Color">
+                    <i class="fa-solid fa-palette"></i>
+                    <div class="color-indicator" id="current-color-badge" style="background-color: #000000;"></div>
+                </button>
+                
+                <!-- Word-Style Color Popup -->
+                <div class="popup-menu" id="color-popup" style="width: 250px;">
+                    <div class="popup-arrow"></div>
+                    
+                    <div class="palette-section-title">Standard Colors</div>
+                    <div class="swatch-grid" id="standard-colors-grid">
+                        <!-- Filled by JS -->
+                    </div>
+
+                    <div class="palette-section-title">Recent Colors</div>
+                    <div class="swatch-grid" id="recent-colors-grid">
+                        <!-- Filled by JS -->
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border); margin: 10px 0;">
+
+                    <label class="custom-color-btn" title="Pick Custom Color">
+                        <i class="fa-solid fa-eye-dropper"></i> More Colors...
+                        <input type="color" id="native-color-picker" value="#000000">
+                    </label>
+
+                    <div class="palette-section-title">Stroke Size: <span id="size-val-display">3px</span></div>
+                    <div class="size-slider-container">
+                        <i class="fa-solid fa-circle" style="font-size: 8px;"></i>
+                        <input type="range" id="size-slider" min="1" max="50" value="3">
+                        <i class="fa-solid fa-circle" style="font-size: 18px;"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Hidden Inputs for Files -->
+    <input type="file" id="file-open" accept=".json" style="display: none;">
+    <input type="file" id="file-image" accept="image/*" style="display: none;">
+    <input type="file" id="file-video" accept="video/mp4,video/webm,video/ogg" style="display: none;">
+    <input type="file" id="file-pdf" accept="application/pdf" style="display: none;">
+
+    <script>
+        /**
+         * PROFESSIONAL DIGITAL TEACHING BOARD v2.0
+         * Updates: Improved Bottom Toolbars, Word-Style Color Palette, Bug Fixes
+         */
+
+        // --- GLOBAL STATE ---
+        const App = {
+            canvas: null,
+            pages: [],
+            currentPageIndex: 0,
+            history: [],
+            historyIndex: -1,
+            isHistoryAction: false,
+            settings: {
+                color: '#000000',
+                size: 3,
+                tool: 'select',
+                theme: 'light'
+            },
+            recentColors: ['#000000', '#FF3B30', '#007AFF', '#34C759', '#FFCC00', '#AF52DE'],
+            standardColors: [
+                '#000000', '#4A4A4A', '#9B9B9B', '#FFFFFF', '#FF3B30', '#FF9500',
+                '#FFCC00', '#34C759', '#5AC8FA', '#007AFF', '#5856D6', '#AF52DE'
+            ],
+            isPanning: false,
+            lastPosX: 0,
+            lastPosY: 0,
+            touchZoomStart: null,
+        };
+
+        // --- INITIALIZATION ---
+        function init() {
+            const wrapper = document.getElementById('canvas-wrapper');
+            const canvasEl = document.getElementById('board');
+            canvasEl.width = wrapper.clientWidth;
+            canvasEl.height = wrapper.clientHeight;
+
+            App.canvas = new fabric.Canvas('board', {
+                isDrawingMode: false,
+                selection: true,
+                preserveObjectStacking: true,
+                enableRetinaScaling: true,
+                backgroundColor: 'transparent'
+            });
+
+            // Initialize PDF.js
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+            App.pages.push(JSON.stringify(App.canvas));
+            updatePageIndicator();
+
+            setupBrushes();
+            buildColorPaletteUI();
+            bindUIEvents();
+            bindCanvasEvents();
+            bindKeyboardShortcuts();
+
+            window.addEventListener('resize', () => {
+                App.canvas.setWidth(wrapper.clientWidth);
+                App.canvas.setHeight(wrapper.clientHeight);
+                App.canvas.renderAll();
+            });
+
+            restoreState();
+            requestAnimationFrame(renderLoop);
+        }
+
+        // --- COLOR MANAGEMENT & UI (Word Style) ---
+        function buildColorPaletteUI() {
+            // Standard Colors
+            const stdGrid = document.getElementById('standard-colors-grid');
+            stdGrid.innerHTML = '';
+            App.standardColors.forEach(color => {
+                const swatch = document.createElement('div');
+                swatch.className = 'swatch';
+                swatch.style.backgroundColor = color;
+                if(color === '#FFFFFF') swatch.style.border = '1px solid #ccc';
+                swatch.onclick = () => updateAppColor(color);
+                stdGrid.appendChild(swatch);
+            });
+            updateRecentColorsUI();
+        }
+
+        function updateRecentColorsUI() {
+            const recGrid = document.getElementById('recent-colors-grid');
+            recGrid.innerHTML = '';
+            App.recentColors.forEach(color => {
+                const swatch = document.createElement('div');
+                swatch.className = 'swatch';
+                swatch.style.backgroundColor = color;
+                if(color === '#FFFFFF') swatch.style.border = '1px solid #ccc';
+                if(color.toLowerCase() === App.settings.color.toLowerCase()) swatch.classList.add('selected');
+                swatch.onclick = () => updateAppColor(color);
+                recGrid.appendChild(swatch);
+            });
+            document.getElementById('current-color-badge').style.backgroundColor = App.settings.color;
+        }
+
+        function updateAppColor(newColor) {
+            App.settings.color = newColor;
+            
+            // Add to recents if not present
+            if(!App.recentColors.includes(newColor)) {
+                App.recentColors.unshift(newColor);
+                if(App.recentColors.length > 6) App.recentColors.pop();
+            } else {
+                // Move to front
+                App.recentColors = App.recentColors.filter(c => c !== newColor);
+                App.recentColors.unshift(newColor);
+            }
+            
+            updateRecentColorsUI();
+            document.getElementById('native-color-picker').value = newColor;
+            updateBrush();
+            changeSelectedObjectProperty('fill', App.settings.color);
+        }
+
+        // --- BRUSH & TOOL SETTINGS ---
+        function setupBrushes() {
+            App.brushes = {
+                pen: new fabric.PencilBrush(App.canvas),
+                highlighter: new fabric.PencilBrush(App.canvas),
+                eraser: new fabric.PencilBrush(App.canvas)
+            };
+            App.brushes.pen.decimate = 1.5; 
+        }
+
+        function updateBrush() {
+            if (!App.canvas.isDrawingMode) return;
+            const tool = App.settings.tool;
+            const s = App.settings;
+
+            if (tool === 'pen') {
+                App.canvas.freeDrawingBrush = App.brushes.pen;
+                App.brushes.pen.color = s.color;
+                App.brushes.pen.width = s.size;
+            } else if (tool === 'highlighter') {
+                App.canvas.freeDrawingBrush = App.brushes.highlighter;
+                App.brushes.highlighter.color = hexToRgba(s.color, 0.4);
+                App.brushes.highlighter.width = s.size * 6;
+            } else if (tool === 'eraser') {
+                App.canvas.freeDrawingBrush = App.brushes.eraser;
+                App.brushes.eraser.color = App.settings.theme === 'dark' ? '#1c1c1e' : '#ffffff';
+                App.brushes.eraser.width = s.size * 5;
+            }
+        }
+
+        function setTool(toolName) {
+            App.settings.tool = toolName;
+            document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+            const btn = document.querySelector(`.tool-btn[data-tool="${toolName}"]`);
+            if (btn) btn.classList.add('active');
+
+            App.canvas.isDrawingMode = ['pen', 'highlighter', 'eraser'].includes(toolName);
+            
+            if (toolName === 'select') {
+                App.canvas.selection = true; App.canvas.defaultCursor = 'default';
+            } else if (toolName === 'laser') {
+                App.canvas.selection = false; App.canvas.defaultCursor = 'crosshair';
+            } else if (toolName === 'text') {
+                App.canvas.selection = false; App.canvas.defaultCursor = 'text';
+            } else {
+                App.canvas.selection = false; App.canvas.defaultCursor = 'crosshair';
+                updateBrush();
+            }
+        }
+
+        // --- POPUP MENU LOGIC ---
+        function togglePopup(popupId, event) {
+            document.querySelectorAll('.popup-menu').forEach(p => {
+                if(p.id !== popupId) p.classList.remove('show');
+            });
+            document.getElementById(popupId).classList.toggle('show');
+            event.stopPropagation();
+        }
+
+        // --- UI EVENTS BINDING ---
+        function bindUIEvents() {
+            // Popup Triggers
+            document.getElementById('btn-menu').addEventListener('click', (e) => togglePopup('menu-popup', e));
+            document.getElementById('btn-shapes').addEventListener('click', (e) => togglePopup('shapes-popup', e));
+            document.getElementById('btn-color').addEventListener('click', (e) => togglePopup('color-popup', e));
+
+            // Close Popups on Outside Click
+            document.addEventListener('click', (e) => {
+                if(!e.target.closest('.popup-menu') && !e.target.closest('.btn')) {
+                    document.querySelectorAll('.popup-menu').forEach(p => p.classList.remove('show'));
+                }
+            });
+
+            // Native Color Picker Override
+            document.getElementById('native-color-picker').addEventListener('input', (e) => updateAppColor(e.target.value));
+
+            // Size Slider
+            document.getElementById('size-slider').addEventListener('input', (e) => {
+                App.settings.size = parseInt(e.target.value);
+                document.getElementById('size-val-display').innerText = `${App.settings.size}px`;
+                updateBrush();
+                changeSelectedObjectProperty('strokeWidth', App.settings.size);
+            });
+
+            // Tools Set
+            document.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => setTool(e.currentTarget.dataset.tool));
+            });
+
+            // Shapes Add
+            document.querySelectorAll('.shape-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    addShape(e.currentTarget.dataset.shape);
+                    setTool('select');
+                    document.getElementById('shapes-popup').classList.remove('show');
+                });
+            });
+
+            // Settings & Menus
+            document.getElementById('btn-theme').addEventListener('click', () => {
+                App.settings.theme = App.settings.theme === 'light' ? 'dark' : 'light';
+                document.body.setAttribute('data-theme', App.settings.theme);
+                if(App.brushes) App.brushes.eraser.color = App.settings.theme === 'dark' ? '#1c1c1e' : '#ffffff';
+                updateBrush();
+                saveState();
+            });
+
+            document.getElementById('btn-clear').addEventListener('click', () => {
+                if(confirm('Are you sure you want to clear all drawings on this page?')) {
+                    // Safe clear: removes objects but keeps canvas config/background image
+                    const objects = App.canvas.getObjects();
+                    objects.forEach(obj => App.canvas.remove(obj));
+                    saveHistory();
+                }
+            });
+
+            // IO Events
+            document.getElementById('btn-save').addEventListener('click', saveProject);
+            document.getElementById('btn-open').addEventListener('click', () => document.getElementById('file-open').click());
+            document.getElementById('file-open').addEventListener('change', loadProject);
+            
+            document.getElementById('btn-export-pdf').addEventListener('click', exportPDF);
+            document.getElementById('btn-import-pdf').addEventListener('click', () => document.getElementById('file-pdf').click());
+            document.getElementById('file-pdf').addEventListener('change', importPDF);
+
+            // Media
+            document.getElementById('btn-image').addEventListener('click', () => document.getElementById('file-image').click());
+            document.getElementById('file-image').addEventListener('change', handleImageUpload);
+            document.getElementById('btn-video').addEventListener('click', () => document.getElementById('file-video').click());
+            document.getElementById('file-video').addEventListener('change', handleVideoUpload);
+
+            // Zoom & Pagination
+            document.getElementById('btn-zoom-in').addEventListener('click', () => zoom(1.2));
+            document.getElementById('btn-zoom-out').addEventListener('click', () => zoom(0.8));
+            document.getElementById('btn-zoom-reset').addEventListener('click', resetZoom);
+            document.getElementById('btn-prev-page').addEventListener('click', () => switchPage(App.currentPageIndex - 1));
+            document.getElementById('btn-next-page').addEventListener('click', () => switchPage(App.currentPageIndex + 1));
+            document.getElementById('btn-add-page').addEventListener('click', addPage);
+            
+            // Undo/Redo
+            document.getElementById('btn-undo').addEventListener('click', undo);
+            document.getElementById('btn-redo').addEventListener('click', redo);
+        }
+
+        // --- CANVAS GESTURES & EVENTS ---
+        function bindCanvasEvents() {
+            App.canvas.on('object:added', () => { if (!App.isHistoryAction) saveHistory(); });
+            App.canvas.on('object:modified', () => { if (!App.isHistoryAction) saveHistory(); });
+            App.canvas.on('object:removed', () => { if (!App.isHistoryAction) saveHistory(); });
+
+            App.canvas.on('mouse:down', function(opt) {
+                // Text Creation
+                if (App.settings.tool === 'text' && !opt.target) {
+                    const pointer = App.canvas.getPointer(opt.e);
+                    const text = new fabric.IText('Type here...', {
+                        left: pointer.x, top: pointer.y, fontFamily: 'Arial',
+                        fill: App.settings.color, fontSize: Math.max(20, App.settings.size * 5)
+                    });
+                    App.canvas.add(text); App.canvas.setActiveObject(text); text.enterEditing(); text.selectAll();
+                    setTool('select'); saveHistory();
+                }
+                
+                // Infinite Panning Check (Spacebar, Alt, Middle-click, or Touch Pinch)
+                const evt = opt.e;
+                if (evt.altKey || evt.button === 1 || (evt.touches && evt.touches.length === 2)) {
+                    App.isPanning = true; App.canvas.selection = false;
+                    App.lastPosX = evt.clientX || (evt.touches && evt.touches[0].clientX);
+                    App.lastPosY = evt.clientY || (evt.touches && evt.touches[0].clientY);
+                }
+            });
+
+            App.canvas.on('mouse:move', function(opt) {
+                if (App.isPanning) {
+                    const e = opt.e;
+                    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                    const vpt = App.canvas.viewportTransform;
+                    vpt[4] += clientX - App.lastPosX; vpt[5] += clientY - App.lastPosY;
+                    App.canvas.requestRenderAll();
+                    App.lastPosX = clientX; App.lastPosY = clientY;
+                }
+
+                // Laser Tool
+                if (App.settings.tool === 'laser' && !App.isPanning) {
+                    createLaserPoint(opt.e.clientX, opt.e.clientY);
+                }
+            });
+
+            App.canvas.on('mouse:up', function() {
+                App.isPanning = false; App.canvas.selection = App.settings.tool === 'select';
+            });
+
+            App.canvas.on('mouse:wheel', function(opt) {
+                const delta = opt.e.deltaY;
+                let zoomObj = App.canvas.getZoom();
+                zoomObj *= 0.999 ** delta;
+                if (zoomObj > 20) zoomObj = 20;
+                if (zoomObj < 0.05) zoomObj = 0.05;
+                App.canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoomObj);
+                opt.e.preventDefault(); opt.e.stopPropagation();
+            });
+        }
+
+        // --- SHAPES & OBJECTS ---
+        function addShape(type) {
+            const center = App.canvas.getCenter();
+            let shape;
+            const opts = { left: center.left, top: center.top, fill: 'transparent', stroke: App.settings.color, strokeWidth: App.settings.size };
+
+            switch(type) {
+                case 'rect': shape = new fabric.Rect({ ...opts, width: 100, height: 100 }); break;
+                case 'circle': shape = new fabric.Circle({ ...opts, radius: 50 }); break;
+                case 'triangle': shape = new fabric.Triangle({ ...opts, width: 100, height: 100 }); break;
+                case 'line': shape = new fabric.Line([50, 50, 200, 50], { ...opts }); break;
+                case 'arrow': 
+                    shape = new fabric.Path('M 0 0 L 100 0 L 100 -10 L 120 5 L 100 20 L 100 10 L 0 10 z', { ...opts, fill: App.settings.color }); break;
+            }
+            if (shape) { App.canvas.add(shape); App.canvas.setActiveObject(shape); saveHistory(); }
+        }
+
+        function changeSelectedObjectProperty(prop, value) {
+            const activeObj = App.canvas.getActiveObject();
+            if (activeObj) {
+                if (prop === 'fill' && activeObj.type === 'path') activeObj.set('stroke', value);
+                else activeObj.set(prop, value);
+                App.canvas.requestRenderAll(); saveHistory();
+            }
+        }
+
+        // --- MEDIA UPLOADS ---
+        function handleImageUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(f) {
+                fabric.Image.fromURL(f.target.result, function(img) {
+                    img.scaleToWidth(Math.min(img.width, App.canvas.width * 0.5));
+                    App.canvas.centerObject(img); App.canvas.add(img); saveHistory();
+                });
+            };
+            reader.readAsDataURL(file); e.target.value = "";
+        }
+
+        function handleVideoUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const videoEl = document.createElement('video');
+            videoEl.src = URL.createObjectURL(file);
+            videoEl.loop = true; videoEl.muted = false;
+            
+            videoEl.onloadeddata = function() {
+                const videoObj = new fabric.Image(videoEl, {
+                    left: App.canvas.width / 2, top: App.canvas.height / 2,
+                    originX: 'center', originY: 'center', objectCaching: false
+                });
+                videoObj.scaleToWidth(Math.min(videoEl.videoWidth, App.canvas.width * 0.5));
+                App.canvas.add(videoObj); videoEl.play(); saveHistory();
+            };
+            e.target.value = "";
+        }
+
+        // --- PAGE MANAGEMENT & HISTORY ---
+        function saveCurrentPage() { App.pages[App.currentPageIndex] = JSON.stringify(App.canvas.toJSON(['background', 'backgroundImage'])); }
+        
+        function addPage() {
+            saveCurrentPage();
+            App.canvas.clear(); App.canvas.setBackgroundColor('transparent', App.canvas.renderAll.bind(App.canvas));
+            App.pages.push(JSON.stringify(App.canvas.toJSON(['background'])));
+            App.currentPageIndex = App.pages.length - 1;
+            resetHistoryForPage(); updatePageIndicator();
+        }
+
+        function switchPage(index) {
+            if (index < 0 || index >= App.pages.length) return;
+            saveCurrentPage(); App.currentPageIndex = index; App.isHistoryAction = true;
+            App.canvas.loadFromJSON(App.pages[index], () => {
+                App.canvas.requestRenderAll(); App.isHistoryAction = false;
+                resetHistoryForPage(); updatePageIndicator();
+            });
+        }
+
+        function updatePageIndicator() {
+            document.getElementById('page-indicator').innerText = `${App.currentPageIndex + 1} / ${App.pages.length}`;
+            saveState();
+        }
+
+        function resetHistoryForPage() {
+            App.history = [App.pages[App.currentPageIndex]];
+            App.historyIndex = 0;
+        }
+
+        function saveHistory() {
+            if (App.isHistoryAction) return;
+            const json = JSON.stringify(App.canvas.toJSON(['background', 'backgroundImage']));
+            App.history = App.history.slice(0, App.historyIndex + 1);
+            App.history.push(json); App.historyIndex++;
+            saveCurrentPage(); saveState();
+        }
+
+        function undo() {
+            if (App.historyIndex > 0) {
+                App.isHistoryAction = true; App.historyIndex--;
+                App.canvas.loadFromJSON(App.history[App.historyIndex], () => { App.canvas.requestRenderAll(); App.isHistoryAction = false; saveCurrentPage(); });
+            }
+        }
+
+        function redo() {
+            if (App.historyIndex < App.history.length - 1) {
+                App.isHistoryAction = true; App.historyIndex++;
+                App.canvas.loadFromJSON(App.history[App.historyIndex], () => { App.canvas.requestRenderAll(); App.isHistoryAction = false; saveCurrentPage(); });
+            }
+        }
+
+        // --- ZOOM, LASER & RENDER ---
+        function zoom(factor) {
+            let z = App.canvas.getZoom() * factor;
+            z = Math.max(0.05, Math.min(z, 20));
+            App.canvas.zoomToPoint({x: App.canvas.width/2, y: App.canvas.height/2}, z);
+        }
+        function resetZoom() { App.canvas.setViewportTransform([1,0,0,1,0,0]); App.canvas.requestRenderAll(); }
+
+        function createLaserPoint(x, y) {
+            const dot = document.createElement('div');
+            dot.className = 'laser-point';
+            dot.style.left = x + 'px'; dot.style.top = y + 'px';
+            document.body.appendChild(dot);
+            setTimeout(() => { dot.style.opacity = '0'; dot.style.transform = 'scale(2.5)'; }, 50);
+            setTimeout(() => dot.remove(), 400);
+        }
+
+        function renderLoop() {
+            if (App.canvas.getObjects().some(o => o.getElement && o.getElement().tagName === 'VIDEO')) {
+                App.canvas.requestRenderAll();
+            }
+            requestAnimationFrame(renderLoop);
+        }
+
+        // --- LOCAL STORAGE, SAVE/LOAD JSON ---
+        function saveState() {
+            try {
+                localStorage.setItem('board_pages', JSON.stringify(App.pages));
+                localStorage.setItem('board_settings', JSON.stringify({ theme: App.settings.theme }));
+            } catch(e) { console.warn('Storage quota exceeded'); }
+        }
+
+        function restoreState() {
+            try {
+                const settings = JSON.parse(localStorage.getItem('board_settings'));
+                if (settings && settings.theme === 'dark') document.getElementById('btn-theme').click();
+                const pages = JSON.parse(localStorage.getItem('board_pages'));
+                if (pages && pages.length > 0) {
+                    App.pages = pages; switchPage(0); return;
+                }
+            } catch(e) { }
+            resetHistoryForPage();
+        }
+
+        function saveProject() {
+            saveCurrentPage();
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(App.pages));
+            const a = document.createElement('a');
+            a.setAttribute("href", dataStr);
+            a.setAttribute("download", "Pro_Board_Project.json");
+            a.click();
+            document.getElementById('menu-popup').classList.remove('show');
+        }
+
+        function loadProject(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(f) {
+                try {
+                    const loadedPages = JSON.parse(f.target.result);
+                    if (Array.isArray(loadedPages)) {
+                        App.pages = loadedPages; switchPage(0);
+                    }
+                } catch(err) { alert("Invalid project file."); }
+            };
+            reader.readAsText(file);
+            document.getElementById('menu-popup').classList.remove('show');
+            e.target.value = "";
+        }
+
+        // --- PDF ENGINE ---
+        function toggleLoader(show, msg = "Processing...") {
+            const l = document.getElementById('loader');
+            document.getElementById('loader-text').innerText = msg;
+            l.style.display = show ? 'flex' : 'none';
+        }
+
+        async function exportPDF() {
+            document.getElementById('menu-popup').classList.remove('show');
+            toggleLoader(true, "Generating PDF...");
+            saveCurrentPage();
+            try {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [App.canvas.width, App.canvas.height] });
+                const tempIndex = App.currentPageIndex;
+
+                for (let i = 0; i < App.pages.length; i++) {
+                    if (i > 0) pdf.addPage([App.canvas.width, App.canvas.height], "landscape");
+                    await new Promise(resolve => {
+                        App.canvas.loadFromJSON(App.pages[i], () => {
+                            App.canvas.renderAll();
+                            setTimeout(() => {
+                                const imgData = App.canvas.toDataURL({ format: 'jpeg', quality: 1.0 });
+                                pdf.addImage(imgData, 'JPEG', 0, 0, App.canvas.width, App.canvas.height);
+                                resolve();
+                            }, 100); // Give fabric time to render
+                        });
+                    });
+                }
+                pdf.save("Digital_Board_Export.pdf");
+                switchPage(tempIndex);
+            } catch(e) { alert("PDF Export failed: " + e.message); }
+            toggleLoader(false);
+        }
+
+        async function importPDF(e) {
+            document.getElementById('menu-popup').classList.remove('show');
+            const file = e.target.files[0];
+            if (!file) return;
+            toggleLoader(true, "Importing PDF...");
+            
+            try {
+                const fileReader = new FileReader();
+                fileReader.onload = async function() {
+                    const typedarray = new Uint8Array(this.result);
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const viewport = page.getViewport({ scale: 2.0 });
+                        
+                        const tempCanvas = document.createElement('canvas');
+                        const ctx = tempCanvas.getContext('2d');
+                        tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
+                        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                        
+                        if (!(i === 1 && App.pages.length === 1 && App.history.length <= 1)) addPage();
+                        
+                        const dataUrl = tempCanvas.toDataURL('image/jpeg');
+                        await new Promise(resolve => {
+                            fabric.Image.fromURL(dataUrl, (img) => {
+                                // Scale to fit canvas height or width
+                                const scale = Math.min(App.canvas.width / img.width, App.canvas.height / img.height);
+                                img.scale(scale);
+                                
+                                App.canvas.setBackgroundImage(img, App.canvas.renderAll.bind(App.canvas), {
+                                    originX: 'center', originY: 'center', 
+                                    left: App.canvas.width/2, top: App.canvas.height/2
+                                });
+                                saveCurrentPage(); resolve();
+                            });
+                        });
+                    }
+                    toggleLoader(false);
+                };
+                fileReader.readAsArrayBuffer(file);
+            } catch(e) { alert("PDF Import failed."); toggleLoader(false); }
+            e.target.value = "";
+        }
+
+        // Utils
+        function hexToRgba(hex, alpha) {
+            let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function bindKeyboardShortcuts() {
+            window.addEventListener('keydown', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    switch(e.key.toLowerCase()) {
+                        case 'z': e.preventDefault(); undo(); break;
+                        case 'y': e.preventDefault(); redo(); break;
+                        case 's': e.preventDefault(); saveProject(); break;
+                    }
+                }
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if(e.target.tagName !== 'INPUT' && !App.canvas.getActiveObject()?.isEditing) {
+                        const activeObjects = App.canvas.getActiveObjects();
+                        if (activeObjects.length) { activeObjects.forEach(obj => App.canvas.remove(obj)); App.canvas.discardActiveObject(); saveHistory(); }
+                    }
+                }
+            });
+        }
+
+        window.onload = init;
+    </script>
+</body>
+  </html>
